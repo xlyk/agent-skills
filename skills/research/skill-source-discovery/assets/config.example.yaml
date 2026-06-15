@@ -1,0 +1,140 @@
+# skill-source-discovery — example config (non-secret)
+#
+# Copy to a path your Hermes instance can read and point the skill at it. Secrets
+# NEVER live here — tokens come from environment variables only (see `secrets:`).
+# Angle-bracket values in the cookbook map to `scoring:` and `cadence:` below.
+
+# --- storage ---------------------------------------------------------------
+database:
+  # default if unset: ${HERMES_DATA_DIR:-$HOME/.hermes}/skill-source-discovery/inventory.db
+  path: "${HERMES_DATA_DIR:-~/.hermes}/skill-source-discovery/inventory.db"
+cache:
+  # content-addressed cache for raw snapshots, optional, debugging only (§9.4)
+  path: "${HERMES_DATA_DIR:-~/.hermes}/skill-source-discovery/cache"
+  enabled: false
+
+# --- which playbooks to run ------------------------------------------------
+adapters:
+  github:    {enabled: true}
+  gitlab:    {enabled: true}
+  bitbucket: {enabled: true, workspaces: []}        # bitbucket is workspace-scoped; seed them
+  forgejo:   {enabled: true, hosts: ["codeberg.org"]}
+  sourcehut: {enabled: true}
+  git:       {enabled: true}                         # generic remotes
+  website:   {enabled: true}
+
+# --- secrets: names of env vars to read (values are NOT stored) ------------
+secrets:
+  parallel_api_key_env: PARALLEL_API_KEY    # required — parallel-cli is the primary discovery source
+  github_token_env:    GITHUB_TOKEN
+  gitlab_token_env:    GITLAB_TOKEN
+  bitbucket_token_env: BITBUCKET_TOKEN
+  forgejo_token_env:   FORGEJO_TOKEN
+  sourcehut_token_env: SRHT_TOKEN
+
+# --- seed inputs (§6.1) ----------------------------------------------------
+seeds:
+  urls:
+    - https://github.com/anthropics/skills
+    - https://github.com/VoltAgent/awesome-agent-skills
+    - https://github.com/ComposioHQ/awesome-codex-skills
+    - https://mcpservers.org/agent-skills
+  orgs:
+    github: [anthropics, openai]
+  websites:
+    - https://agentskills.io/home
+
+# --- discovery: PRIMARY source is parallel-cli (§6.2) ----------------------
+discovery:
+  primary: parallel-cli
+  parallel:
+    mode: one-shot                 # 'agentic' for harder objectives
+    max_results: 20
+    include_domains: []            # e.g. [github.com, gitlab.com, codeberg.org, git.sr.ht]
+    exclude_domains: [medium.com, dev.to]   # noisy article hosts that crowd out sources
+  objectives:                      # natural-language goals; keep them diverse + specific
+    - "public repositories of agent skills containing SKILL.md"
+    - "awesome-lists and directories of agent skills"
+    - "agent skill collections on GitLab, Codeberg, and SourceHut"
+    - "claude / codex / copilot skill repositories and catalogs"
+
+# --- supplementary platform-native queries (secondary to parallel-cli) -----
+# GitHub code/topic search adds GitHub-specific depth; mirrored into search_queries.
+queries:
+  github:
+    - {purpose: skill_md,       template: 'filename:SKILL.md path:skills', cadence: daily}
+    - {purpose: topics,         template: 'topic:agent-skills',            cadence: daily}
+    - {purpose: awesome_lists,  template: 'awesome agent skills in:name,description,readme', cadence: weekly}
+    - {purpose: claude_skills,  template: 'topic:claude-skills',           cadence: daily}
+    - {purpose: codex_skills,   template: 'topic:codex-skills',            cadence: weekly}
+  gitlab:
+    - {purpose: projects,       template: 'agent skills',                  cadence: weekly}
+    - {purpose: topics,         template: 'topic=agent-skills',            cadence: weekly}
+  forgejo:
+    - {purpose: search,         template: 'skills',                        cadence: weekly}
+  web:
+    - {purpose: broad,          template: 'awesome agent skills SKILL.md', cadence: weekly}
+
+# --- cadences -> ISO cutoffs the planner uses (§10.3) ----------------------
+cadence:
+  high_yield_discovery: daily
+  accepted_refresh: every_2_3_days
+  broad_search: weekly
+  dead_recheck: weekly
+  digest: daily
+
+# --- scoring (mirrors scoring-policy.md; tune freely) ----------------------
+scoring:
+  saturation: 5.0
+  accept: 0.6
+  review: 0.3
+  dead_after: 3
+  weights:
+    has_skill_md: 2.0
+    multiple_skill_dirs: 2.0
+    skills_in_known_path: 1.0
+    readme_describes_skills: 1.0
+    topic_match: 1.0
+    directory_lists_multiple: 2.0
+    linked_by_accepted_high_trust: 1.5
+    has_license: 0.5
+    recently_maintained: 0.5
+    no_public_access: -5.0
+    spam_or_linkfarm: -5.0
+    archived_or_deleted: -2.0
+    unreachable: -2.0
+    single_unrelated_mention: -2.0
+    marketing_only: -2.0
+    prompts_no_packaging: -1.5
+    duplicate_mirror_no_value: -1.0
+
+# --- politeness / limits (§16, §13) ----------------------------------------
+limits:
+  http_timeout_s: 20
+  max_response_bytes: 5000000
+  per_provider_rate:        # requests/min ceiling per provider
+    github: 60
+    gitlab: 30
+    website: 20
+  crawl:
+    max_depth: 2
+    respect_robots: true
+    allow_domains: []       # empty = any; populate to restrict
+    deny_domains: []
+
+# --- notifications (skill decides; Hermes delivers) (§11) ------------------
+notifications:
+  emit_accepted_immediately: true
+  batch_needs_review_into_digest: true
+  emit_per_individual_skill: false
+  scan_error_threshold: 5   # failures before scan.error_threshold fires
+
+# --- review defaults (§17) -------------------------------------------------
+review:
+  default_reviewer: hermes
+  auto_accept_on_threshold: true   # resolved §22.2
+
+# --- exports (§14) ---------------------------------------------------------
+export:
+  dir: "${HERMES_DATA_DIR:-~/.hermes}/skill-source-discovery/exports"
+  formats: [json, csv, markdown]
